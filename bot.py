@@ -216,7 +216,7 @@ def create_ranking_image(ranking: dict) -> bytes:
 def get_tiktok_headers() -> dict:
     return {
         "Authorization": f"Bearer {TIKTOK_ACCESS_TOKEN}",
-        "Content-Type":  "application/json; charset=UTF-8",
+        "Content-Type":  "application/json; ,
     }
 
 
