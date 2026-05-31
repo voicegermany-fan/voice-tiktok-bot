@@ -1,6 +1,6 @@
 """
 The Voice Germany TikTok Bot
-Generiert automatisch Ranking-Posts und postet sie auf TikTok.
+Postet automatisch Ranking-Bilder auf TikTok via Video Upload (MP4).
 """
 
 import os
@@ -8,9 +8,11 @@ import json
 import random
 import datetime
 import requests
+import subprocess
 from PIL import Image, ImageDraw, ImageFont
 import textwrap
 import io
+import tempfile
 
 TIKTOK_CLIENT_KEY    = os.environ["TIKTOK_CLIENT_KEY"]
 TIKTOK_CLIENT_SECRET = os.environ["TIKTOK_CLIENT_SECRET"]
@@ -30,8 +32,7 @@ COLORS = {
 RANKINGS = [
     {
         "title": "Top 5 Blind Auditions aller Zeiten",
-        "subtitle": "The Voice Germany – Die emotionalsten Momente",
-        "hashtags": "#TheVoiceGermany #BlindAudition #Top5 #Musik #Talent #Viral",
+        "hashtags": "#TheVoiceGermany #BlindAudition #Top5 #Musik #Talent",
         "items": [
             {"rank": 1, "name": "Andrea Berg",    "detail": "Staffel 3",  "song": "Du hast mich tausendmal belogen"},
             {"rank": 2, "name": "Lina Seefried",  "detail": "Staffel 11", "song": "Chandelier"},
@@ -42,8 +43,7 @@ RANKINGS = [
     },
     {
         "title": "Top 5 The Voice Kids Auftritte",
-        "subtitle": "Die staerksten Kinder-Talente Deutschlands",
-        "hashtags": "#TheVoiceKids #Talent #Top5 #Kinder #Musik #Deutschland",
+        "hashtags": "#TheVoiceKids #Talent #Top5 #Kinder #Musik",
         "items": [
             {"rank": 1, "name": "Fabio",  "detail": "9 Jahre",  "song": "Bohemian Rhapsody"},
             {"rank": 2, "name": "Anny",   "detail": "11 Jahre", "song": "Rise Up"},
@@ -54,32 +54,29 @@ RANKINGS = [
     },
     {
         "title": "Top 5 Coach-Statistiken",
-        "subtitle": "Wer hat die meisten Chairs gedreht?",
-        "hashtags": "#TheVoiceGermany #Coaches #Ranking #Top5 #Statistik",
+        "hashtags": "#TheVoiceGermany #Coaches #Ranking #Top5",
         "items": [
-            {"rank": 1, "name": "Rea Garvey",    "detail": "Coach seit Staffel 1", "song": "3 Gewinner"},
-            {"rank": 2, "name": "Mark Forster",  "detail": "Coach seit Staffel 7", "song": "2 Gewinner"},
-            {"rank": 3, "name": "Stef. Kloss",   "detail": "Coach seit Staffel 9", "song": "2 Gewinner"},
-            {"rank": 4, "name": "Nena",          "detail": "Coach Staffel 1-3",    "song": "1 Gewinner"},
-            {"rank": 5, "name": "Lena",          "detail": "Coach seit Staffel 12","song": "1 Gewinner"},
+            {"rank": 1, "name": "Rea Garvey",   "detail": "Staffel 1+",  "song": "3 Gewinner"},
+            {"rank": 2, "name": "Mark Forster", "detail": "Staffel 7+",  "song": "2 Gewinner"},
+            {"rank": 3, "name": "Stef. Kloss",  "detail": "Staffel 9+",  "song": "2 Gewinner"},
+            {"rank": 4, "name": "Nena",         "detail": "Staffel 1-3", "song": "1 Gewinner"},
+            {"rank": 5, "name": "Lena",         "detail": "Staffel 12+", "song": "1 Gewinner"},
         ],
     },
     {
         "title": "Top 5 meistgeklickte Songs",
-        "subtitle": "The Voice Germany auf YouTube",
-        "hashtags": "#TheVoiceGermany #YouTube #Viral #Top5 #Musik #Rekord",
+        "hashtags": "#TheVoiceGermany #YouTube #Viral #Top5 #Musik",
         "items": [
-            {"rank": 1, "name": "Lina Seefried",     "detail": "50+ Mio. Views", "song": "Chandelier"},
-            {"rank": 2, "name": "Jonny Fischer",     "detail": "38 Mio. Views",  "song": "Bohemian Rhapsody"},
-            {"rank": 3, "name": "Manon Joste",       "detail": "29 Mio. Views",  "song": "River"},
-            {"rank": 4, "name": "Stef. Heinzmann",   "detail": "24 Mio. Views",  "song": "Halo"},
-            {"rank": 5, "name": "Alexander Knappe",  "detail": "18 Mio. Views",  "song": "Titanium"},
+            {"rank": 1, "name": "Lina Seefried",    "detail": "50+ Mio. Views", "song": "Chandelier"},
+            {"rank": 2, "name": "Jonny Fischer",    "detail": "38 Mio. Views",  "song": "Bohemian Rhapsody"},
+            {"rank": 3, "name": "Manon Joste",      "detail": "29 Mio. Views",  "song": "River"},
+            {"rank": 4, "name": "Stef. Heinzmann",  "detail": "24 Mio. Views",  "song": "Halo"},
+            {"rank": 5, "name": "Alex. Knappe",     "detail": "18 Mio. Views",  "song": "Titanium"},
         ],
     },
     {
         "title": "Top 5 Coach-Reaktionen",
-        "subtitle": "Wenn die Coaches Traenen bekommen",
-        "hashtags": "#TheVoiceGermany #Coaches #Emotional #Top5 #Gaensehaut",
+        "hashtags": "#TheVoiceGermany #Coaches #Emotional #Top5",
         "items": [
             {"rank": 1, "name": "Mark Forster weint", "detail": "Staffel 10", "song": "bei Bohemian Rhapsody"},
             {"rank": 2, "name": "Nena steht auf",     "detail": "Staffel 2",  "song": "bei Rise Up"},
@@ -91,11 +88,11 @@ RANKINGS = [
 ]
 
 CAPTION_TEMPLATES = [
-    "Welcher Platz ueberrascht dich am meisten? Kommentiere unten!",
-    "Bist du einverstanden? Schreib deinen Favoriten in die Kommentare!",
+    "Welcher Platz ueberrascht dich am meisten?",
+    "Bist du einverstanden? Kommentiere deinen Favoriten!",
     "Welcher Moment fehlt in dieser Liste?",
     "Folgen fuer taeglich neue The Voice Rankings!",
-    "Wer war DEIN Favorit? Lass es uns wissen!",
+    "Wer war DEIN Favorit?",
 ]
 
 
@@ -162,70 +159,108 @@ def create_ranking_image(ranking: dict) -> bytes:
     return buf.getvalue()
 
 
-def post_to_tiktok(image_bytes: bytes, caption: str):
-    """Postet ein Bild als TikTok Photo Post."""
+def image_to_video(image_bytes: bytes, duration: int = 5) -> str:
+    """Konvertiert ein Bild in ein kurzes MP4-Video fuer TikTok."""
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
+        f.write(image_bytes)
+        img_path = f.name
+
+    video_path = img_path.replace(".jpg", ".mp4")
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-loop", "1",
+        "-i", img_path,
+        "-c:v", "libx264",
+        "-t", str(duration),
+        "-pix_fmt", "yuv420p",
+        "-vf", "scale=1080:1920",
+        "-r", "30",
+        video_path
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"FFmpeg Fehler: {result.stderr}")
+        raise Exception("Video-Konvertierung fehlgeschlagen")
+
+    print(f"Video erstellt: {video_path}")
+    return video_path
+
+
+def post_video_to_tiktok(video_path: str, caption: str):
+    """Postet ein Video auf TikTok via Direct Post."""
     token = TIKTOK_ACCESS_TOKEN.strip()
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json; charset=UTF-8",
     }
 
-    print(f"Token (erste 15 Zeichen): {token[:15]}")
+    video_size = os.path.getsize(video_path)
+    print(f"Videogroesse: {video_size // 1024} KB")
 
-    # Schritt 1: Photo Post initialisieren
-    payload = {
-    "post_info": {
-        "title": caption[:150],
-        "privacy_level": "SELF_ONLY",
-        "disable_comment": False,
-        "disable_duet": False,
-        "disable_stitch": False,
-        "brand_content_toggle": False,
-        "brand_organic_toggle": False,
-    },
-    "source_info": {
-        "source": "FILE_UPLOAD",
-        "photo_cover_index": 0,
-        "photo_images": [],
-    },
-    "post_mode": "DIRECT_POST",
-    "media_type": "PHOTO",
-}
-
-    print("Initialisiere Photo Post...")
-    resp = requests.post(
-        "https://open.tiktokapis.com/v2/post/publish/content/init/",
+    # Schritt 1: Creator Info abfragen (TikTok Pflicht)
+    print("Frage Creator Info ab...")
+    creator_resp = requests.post(
+        "https://open.tiktokapis.com/v2/post/publish/creator_info/query/",
         headers=headers,
-        json=payload,
+        json={},
         timeout=30,
     )
-    print(f"Init Antwort: {resp.status_code} - {resp.text}")
-    resp.raise_for_status()
+    print(f"Creator Info: {creator_resp.status_code} - {creator_resp.text[:200]}")
 
-    data       = resp.json().get("data", {})
+    # Schritt 2: Video Post initialisieren
+    print("Initialisiere Video Post...")
+    init_resp = requests.post(
+        "https://open.tiktokapis.com/v2/post/publish/video/init/",
+        headers=headers,
+        json={
+            "post_info": {
+                "title": caption[:150],
+                "privacy_level": "SELF_ONLY",
+                "disable_comment": False,
+                "disable_duet": False,
+                "disable_stitch": False,
+            },
+            "source_info": {
+                "source": "FILE_UPLOAD",
+                "video_size": video_size,
+                "chunk_size": video_size,
+                "total_chunk_count": 1,
+            },
+        },
+        timeout=30,
+    )
+    print(f"Init Antwort: {init_resp.status_code} - {init_resp.text[:300]}")
+    init_resp.raise_for_status()
+
+    data       = init_resp.json().get("data", {})
     publish_id = data.get("publish_id")
     upload_url = data.get("upload_url")
 
     if not upload_url:
-        print("Kein upload_url erhalten!")
+        print("Fehler: Kein upload_url!")
         return
 
-    # Schritt 2: Bild hochladen
-    print(f"Lade Bild hoch zu: {upload_url[:50]}...")
+    # Schritt 3: Video hochladen
+    print("Lade Video hoch...")
+    with open(video_path, "rb") as f:
+        video_bytes = f.read()
+
     upload_resp = requests.put(
         upload_url,
-        data=image_bytes,
+        data=video_bytes,
         headers={
-            "Content-Type":   "image/jpeg",
-            "Content-Length": str(len(image_bytes)),
-            "Content-Range":  f"bytes 0-{len(image_bytes)-1}/{len(image_bytes)}",
+            "Content-Type":   "video/mp4",
+            "Content-Length": str(video_size),
+            "Content-Range":  f"bytes 0-{video_size-1}/{video_size}",
         },
-        timeout=60,
+        timeout=120,
     )
     print(f"Upload Antwort: {upload_resp.status_code}")
     upload_resp.raise_for_status()
 
-    print(f"Erfolgreich gepostet! publish_id: {publish_id}")
+    print(f"Erfolgreich! publish_id: {publish_id}")
     return publish_id
 
 
@@ -237,10 +272,9 @@ def get_todays_ranking() -> dict:
 
 
 def build_caption(ranking: dict) -> str:
-    caption = f"The Voice Germany – {ranking['title']}\n\n"
+    caption = f"The Voice Germany - {ranking['title']}\n\n"
     for item in ranking["items"]:
-        medal = {1: "1.", 2: "2.", 3: "3."}.get(item["rank"], f"{item['rank']}.")
-        caption += f"{medal} {item['name']} - {item['song']}\n"
+        caption += f"{item['rank']}. {item['name']} - {item['song']}\n"
     caption += f"\n{random.choice(CAPTION_TEMPLATES)}\n\n"
     caption += ranking["hashtags"]
     return caption
@@ -253,11 +287,16 @@ def run():
 
     print("Erstelle Bild...")
     image_bytes = create_ranking_image(ranking)
-    print(f"Bild erstellt: {len(image_bytes) // 1024} KB")
+    print(f"Bild: {len(image_bytes) // 1024} KB")
+
+    print("Konvertiere zu Video...")
+    video_path = image_to_video(image_bytes, duration=8)
 
     caption = build_caption(ranking)
     print("Poste auf TikTok...")
-    post_to_tiktok(image_bytes, caption)
+    post_video_to_tiktok(video_path, caption)
+
+    os.unlink(video_path)
     print(f"[{datetime.datetime.now()}] Fertig!")
 
 
