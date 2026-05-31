@@ -1,6 +1,6 @@
 """
 The Voice Germany TikTok Bot
-Generiert automatisch Ranking-Posts und postet sie auf TikTok.
+Schneidet zufaellig 3 Clips zusammen mit Ranking-Overlay und postet auf TikTok.
 """
 
 import os
@@ -8,9 +8,8 @@ import json
 import random
 import datetime
 import requests
-import numpy as np
-import cv2
-from PIL import Image, ImageDraw, ImageFont
+import subprocess
+import glob
 import textwrap
 import io
 
@@ -18,162 +17,141 @@ TIKTOK_CLIENT_KEY    = os.environ["TIKTOK_CLIENT_KEY"]
 TIKTOK_CLIENT_SECRET = os.environ["TIKTOK_CLIENT_SECRET"]
 TIKTOK_ACCESS_TOKEN  = os.environ["TIKTOK_ACCESS_TOKEN"]
 
-COLORS = {
-    "background": (15, 15, 20),
-    "card":       (25, 25, 35),
-    "red":        (226, 75, 74),
-    "gold":       (255, 196, 0),
-    "silver":     (180, 180, 190),
-    "bronze":     (180, 100, 50),
-    "white":      (255, 255, 255),
-    "gray":       (140, 140, 150),
-}
-
-RANKINGS = [
-    {
-        "title": "Top 5 Blind Auditions aller Zeiten",
-        "hashtags": "#TheVoiceGermany #BlindAudition #Top5 #Musik #Talent",
-        "items": [
-            {"rank": 1, "name": "Andrea Berg",    "detail": "Staffel 3",  "song": "Du hast mich tausendmal belogen"},
-            {"rank": 2, "name": "Lina Seefried",  "detail": "Staffel 11", "song": "Chandelier"},
-            {"rank": 3, "name": "Jonny Fischer",  "detail": "Staffel 10", "song": "Bohemian Rhapsody"},
-            {"rank": 4, "name": "Sarah Lombardi", "detail": "Staffel 2",  "song": "Son of a Preacher Man"},
-            {"rank": 5, "name": "Manon Joste",    "detail": "Staffel 12", "song": "River"},
-        ],
-    },
-    {
-        "title": "Top 5 The Voice Kids Auftritte",
-        "hashtags": "#TheVoiceKids #Talent #Top5 #Kinder #Musik",
-        "items": [
-            {"rank": 1, "name": "Fabio",  "detail": "9 Jahre",  "song": "Bohemian Rhapsody"},
-            {"rank": 2, "name": "Anny",   "detail": "11 Jahre", "song": "Rise Up"},
-            {"rank": 3, "name": "Leon",   "detail": "10 Jahre", "song": "Shallow"},
-            {"rank": 4, "name": "Maya",   "detail": "12 Jahre", "song": "Hallelujah"},
-            {"rank": 5, "name": "Tim",    "detail": "13 Jahre", "song": "Imagine"},
-        ],
-    },
-    {
-        "title": "Top 5 Coach-Statistiken",
-        "hashtags": "#TheVoiceGermany #Coaches #Ranking #Top5",
-        "items": [
-            {"rank": 1, "name": "Rea Garvey",   "detail": "Staffel 1+",  "song": "3 Gewinner"},
-            {"rank": 2, "name": "Mark Forster", "detail": "Staffel 7+",  "song": "2 Gewinner"},
-            {"rank": 3, "name": "Stef. Kloss",  "detail": "Staffel 9+",  "song": "2 Gewinner"},
-            {"rank": 4, "name": "Nena",         "detail": "Staffel 1-3", "song": "1 Gewinner"},
-            {"rank": 5, "name": "Lena",         "detail": "Staffel 12+", "song": "1 Gewinner"},
-        ],
-    },
-    {
-        "title": "Top 5 meistgeklickte Songs",
-        "hashtags": "#TheVoiceGermany #YouTube #Viral #Top5 #Musik",
-        "items": [
-            {"rank": 1, "name": "Lina Seefried",   "detail": "50+ Mio. Views", "song": "Chandelier"},
-            {"rank": 2, "name": "Jonny Fischer",   "detail": "38 Mio. Views",  "song": "Bohemian Rhapsody"},
-            {"rank": 3, "name": "Manon Joste",     "detail": "29 Mio. Views",  "song": "River"},
-            {"rank": 4, "name": "Stef. Heinzmann", "detail": "24 Mio. Views",  "song": "Halo"},
-            {"rank": 5, "name": "Alex. Knappe",    "detail": "18 Mio. Views",  "song": "Titanium"},
-        ],
-    },
-    {
-        "title": "Top 5 Coach-Reaktionen",
-        "hashtags": "#TheVoiceGermany #Coaches #Emotional #Top5",
-        "items": [
-            {"rank": 1, "name": "Mark Forster weint", "detail": "Staffel 10", "song": "bei Bohemian Rhapsody"},
-            {"rank": 2, "name": "Nena steht auf",     "detail": "Staffel 2",  "song": "bei Rise Up"},
-            {"rank": 3, "name": "Rea springt auf",    "detail": "Staffel 8",  "song": "bei Hallelujah"},
-            {"rank": 4, "name": "Stef. Kloss weint",  "detail": "Staffel 12", "song": "bei Imagine"},
-            {"rank": 5, "name": "Alle 4 drehen sich", "detail": "Staffel 11", "song": "bei Chandelier"},
-        ],
-    },
-]
-
 CAPTION_TEMPLATES = [
-    "Welcher Platz ueberrascht dich am meisten?",
-    "Bist du einverstanden? Kommentiere deinen Favoriten!",
-    "Welcher Moment fehlt in dieser Liste?",
-    "Folgen fuer taeglich neue The Voice Rankings!",
-    "Wer war DEIN Favorit?",
+    "Welcher Auftritt hat dich am meisten begeistert? Kommentiere unten!",
+    "Bist du einverstanden? Schreib deinen Favoriten in die Kommentare!",
+    "Welcher Moment war dein Favorit?",
+    "Folgen fuer taeglich neue The Voice Highlights!",
+    "Wer war DEIN Favorit? Lass es uns wissen!",
 ]
 
+HASHTAGS = "#TheVoiceGermany #TheVoiceKids #BlindAudition #Musik #Talent #Viral #Top3 #Ranking"
 
-def create_ranking_image(ranking: dict) -> bytes:
-    W, H = 1080, 1920
-    img = Image.new("RGB", (W, H), COLORS["background"])
-    draw = ImageDraw.Draw(img)
 
+def get_clip_info(clip_path: str) -> dict:
+    """Liest Metadaten aus dem Dateinamen.
+    Format: Name_Song_Staffel.mp4
+    Beispiel: Andrea-Berg_Du-hast-mich_Staffel-3.mp4
+    """
+    filename = os.path.splitext(os.path.basename(clip_path))[0]
+    parts = filename.split("_")
+
+    name    = parts[0].replace("-", " ") if len(parts) > 0 else "Unbekannt"
+    song    = parts[1].replace("-", " ") if len(parts) > 1 else "Unbekannt"
+    staffel = parts[2].replace("-", " ") if len(parts) > 2 else ""
+
+    return {"name": name, "song": song, "staffel": staffel, "path": clip_path}
+
+
+def get_video_duration(path: str) -> float:
+    """Gibt die Laenge eines Videos in Sekunden zurueck."""
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", path],
+        capture_output=True, text=True
+    )
     try:
-        font_big   = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 52)
-        font_med   = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 38)
-        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 30)
-        font_tiny  = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
-        font_rank  = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 64)
+        return float(result.stdout.strip())
     except Exception:
-        font_big = font_med = font_small = font_tiny = font_rank = ImageFont.load_default()
-
-    draw.rectangle([(0, 0), (W, 220)], fill=COLORS["red"])
-    draw.text((540, 70),  "THE VOICE", font=font_big,   fill=COLORS["white"], anchor="mm")
-    draw.text((540, 130), "GERMANY",   font=font_big,   fill=COLORS["white"], anchor="mm")
-    draw.text((540, 180), "RANKING",   font=font_small, fill=COLORS["white"], anchor="mm")
-
-    title_lines = textwrap.wrap(ranking["title"], width=28)
-    y = 260
-    for line in title_lines:
-        draw.text((540, y), line, font=font_med, fill=COLORS["white"], anchor="mm")
-        y += 55
-
-    draw.rectangle([(80, y + 10), (W - 80, y + 14)], fill=COLORS["red"])
-    y += 50
-
-    rank_colors = {1: COLORS["gold"], 2: COLORS["silver"], 3: COLORS["bronze"]}
-
-    for item in ranking["items"]:
-        card_top = y
-        card_h   = 230
-        rank_col = rank_colors.get(item["rank"], COLORS["gray"])
-
-        draw.rounded_rectangle([(60, card_top), (W - 60, card_top + card_h)], radius=20, fill=COLORS["card"])
-        draw.rounded_rectangle([(60, card_top), (130, card_top + card_h)],    radius=20, fill=rank_col)
-        draw.text((95, card_top + card_h // 2),      str(item["rank"]), font=font_rank,  fill=COLORS["background"], anchor="mm")
-        draw.text((95, card_top + card_h // 2 + 42), "PLATZ",           font=font_tiny,  fill=COLORS["background"], anchor="mm")
-        draw.text((155, card_top + 45),  item["name"],   font=font_med,   fill=COLORS["white"], anchor="lm")
-        draw.text((155, card_top + 100), item["detail"], font=font_small, fill=rank_col,        anchor="lm")
-
-        song_lines = textwrap.wrap(f'"{item["song"]}"', width=32)
-        sy = card_top + 148
-        for sl in song_lines:
-            draw.text((155, sy), sl, font=font_tiny, fill=COLORS["gray"], anchor="lm")
-            sy += 34
-
-        if item["rank"] < len(ranking["items"]):
-            draw.rectangle([(60, card_top + card_h + 6), (W - 60, card_top + card_h + 8)], fill=(40, 40, 55))
-
-        y += card_h + 16
-
-    footer_y = H - 120
-    draw.rectangle([(0, footer_y), (W, H)], fill=COLORS["red"])
-    draw.text((540, footer_y + 40), random.choice(CAPTION_TEMPLATES), font=font_tiny, fill=COLORS["white"], anchor="mm")
-    draw.text((540, footer_y + 85), "Folgen fuer mehr Rankings!", font=font_tiny, fill=COLORS["white"], anchor="mm")
-
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=95)
-    return buf.getvalue()
+        return 30.0
 
 
-def image_to_video(image_bytes: bytes, duration: int = 8) -> str:
-    img = Image.open(io.BytesIO(image_bytes))
-    img = img.resize((1080, 1920))
-    frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+def create_combined_video(clips: list, output_path: str):
+    """Schneidet 3 Clips zusammen mit Ranking-Overlay."""
 
-    video_path = "/tmp/ranking_video.mp4"
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    out = cv2.VideoWriter(video_path, fourcc, 30, (1080, 1920))
+    # Temporaere Dateien fuer jeden Clip
+    temp_clips = []
 
-    for _ in range(30 * duration):
-        out.write(frame)
+    for i, clip in enumerate(clips):
+        rank     = i + 1
+        name     = clip["name"]
+        song     = clip["song"]
+        staffel  = clip["staffel"]
+        duration = get_video_duration(clip["path"])
 
-    out.release()
-    print(f"Video erstellt: {video_path}")
-    return video_path
+        # Maximale Clip-Laenge: 20 Sekunden (damit Gesamtvideo ~60s)
+        clip_duration = min(duration, 20)
+        # Mittleren Teil des Clips nehmen
+        start = max(0, (duration - clip_duration) / 2)
+
+        temp_path = f"/tmp/clip_{rank}.mp4"
+        temp_clips.append(temp_path)
+
+        # Overlay-Text
+        rank_emoji = {1: "1.", 2: "2.", 3: "3."}[rank]
+        line1 = f"PLATZ {rank}"
+        line2 = name[:25]
+        line3 = f"\"{song[:30]}\""
+        line4 = staffel[:20] if staffel else ""
+
+        # FFmpeg: Clip schneiden + auf 1080x1920 skalieren + Text-Overlay
+        drawtext_cmds = [
+            # Schwarzer Hintergrund-Banner oben
+            f"drawbox=x=0:y=0:w=iw:h=180:color=black@0.75:t=fill",
+            # Platz-Nummer gross
+            f"drawtext=text='{line1}':fontsize=72:fontcolor=white:x=(w-text_w)/2:y=20:fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            # Name
+            f"drawtext=text='{line2}':fontsize=44:fontcolor=white:x=(w-text_w)/2:y=100:fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            # Song
+            f"drawtext=text='{line3}':fontsize=32:fontcolor=#aaaaaa:x=(w-text_w)/2:y=155:fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ]
+
+        if line4:
+            drawtext_cmds.append(
+                f"drawtext=text='{line4}':fontsize=28:fontcolor=#888888:x=(w-text_w)/2:y=200:fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+            )
+
+        vf_filter = ",".join(drawtext_cmds)
+        vf_filter = f"scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1,{vf_filter}"
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(start),
+            "-i", clip["path"],
+            "-t", str(clip_duration),
+            "-vf", vf_filter,
+            "-c:v", "libx264",
+            "-c:a", "aac",
+            "-r", "30",
+            "-pix_fmt", "yuv420p",
+            temp_path
+        ]
+
+        print(f"Verarbeite Clip {rank}: {name} - {song}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"FFmpeg Fehler: {result.stderr[-500:]}")
+            raise Exception(f"Clip {rank} fehlgeschlagen")
+
+    # Alle Clips zusammenfuegen
+    print("Fuege Clips zusammen...")
+    concat_file = "/tmp/concat.txt"
+    with open(concat_file, "w") as f:
+        for p in temp_clips:
+            f.write(f"file '{p}'\n")
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", concat_file,
+        "-c:v", "libx264",
+        "-c:a", "aac",
+        "-pix_fmt", "yuv420p",
+        output_path
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"Concat Fehler: {result.stderr[-500:]}")
+        raise Exception("Zusammenfuegen fehlgeschlagen")
+
+    # Temp-Dateien loeschen
+    for p in temp_clips:
+        if os.path.exists(p):
+            os.unlink(p)
+
+    print(f"Video fertig: {output_path}")
 
 
 def post_video_to_tiktok(video_path: str, caption: str):
@@ -193,7 +171,7 @@ def post_video_to_tiktok(video_path: str, caption: str):
         json={},
         timeout=30,
     )
-    print(f"Creator Info: {creator_resp.status_code} - {creator_resp.text[:200]}")
+    print(f"Creator Info: {creator_resp.status_code}")
 
     print("Initialisiere Video Post...")
     init_resp = requests.post(
@@ -216,16 +194,12 @@ def post_video_to_tiktok(video_path: str, caption: str):
         },
         timeout=30,
     )
-    print(f"Init Antwort: {init_resp.status_code} - {init_resp.text[:300]}")
+    print(f"Init: {init_resp.status_code} - {init_resp.text[:200]}")
     init_resp.raise_for_status()
 
     data       = init_resp.json().get("data", {})
     publish_id = data.get("publish_id")
     upload_url = data.get("upload_url")
-
-    if not upload_url:
-        print("Fehler: Kein upload_url!")
-        return
 
     print("Lade Video hoch...")
     with open(video_path, "rb") as f:
@@ -239,48 +213,57 @@ def post_video_to_tiktok(video_path: str, caption: str):
             "Content-Length": str(video_size),
             "Content-Range":  f"bytes 0-{video_size-1}/{video_size}",
         },
-        timeout=120,
+        timeout=300,
     )
-    print(f"Upload Antwort: {upload_resp.status_code}")
+    print(f"Upload: {upload_resp.status_code}")
     upload_resp.raise_for_status()
 
-    print(f"Erfolgreich! publish_id: {publish_id}")
+    print(f"Erfolgreich gepostet! publish_id: {publish_id}")
     return publish_id
 
 
-def get_todays_ranking() -> dict:
-    day_of_year = datetime.date.today().timetuple().tm_yday
-    post_number = int(os.environ.get("POST_NUMBER", "0"))
-    index       = (day_of_year + post_number) % len(RANKINGS)
-    return RANKINGS[index]
-
-
-def build_caption(ranking: dict) -> str:
-    caption = f"The Voice Germany - {ranking['title']}\n\n"
-    for item in ranking["items"]:
-        caption += f"{item['rank']}. {item['name']} - {item['song']}\n"
+def build_caption(clips: list) -> str:
+    caption = "Top 3 The Voice Germany Momente\n\n"
+    for i, clip in enumerate(clips):
+        caption += f"{i+1}. {clip['name']} - \"{clip['song']}\"\n"
     caption += f"\n{random.choice(CAPTION_TEMPLATES)}\n\n"
-    caption += ranking["hashtags"]
+    caption += HASHTAGS
     return caption
 
 
 def run():
     print(f"[{datetime.datetime.now()}] Bot startet...")
-    ranking = get_todays_ranking()
-    print(f"Ranking: {ranking['title']}")
 
-    print("Erstelle Bild...")
-    image_bytes = create_ranking_image(ranking)
-    print(f"Bild: {len(image_bytes) // 1024} KB")
+    # Alle Clips aus dem clips/ Ordner laden
+    clip_files = glob.glob("clips/*.mp4") + glob.glob("clips/*.MP4")
 
-    print("Konvertiere zu Video...")
-    video_path = image_to_video(image_bytes, duration=8)
+    if len(clip_files) < 3:
+        print(f"Fehler: Nur {len(clip_files)} Clips gefunden. Mindestens 3 benoetigt!")
+        return
 
-    caption = build_caption(ranking)
+    # Zufaellig 3 Clips auswaehlen
+    selected = random.sample(clip_files, 3)
+    clips    = [get_clip_info(c) for c in selected]
+
+    print(f"Ausgewaehlte Clips:")
+    for i, c in enumerate(clips):
+        print(f"  {i+1}. {c['name']} - {c['song']}")
+
+    # Video erstellen
+    output_path = "/tmp/final_video.mp4"
+    create_combined_video(clips, output_path)
+
+    # Caption erstellen
+    caption = build_caption(clips)
+
+    # Auf TikTok posten
     print("Poste auf TikTok...")
-    post_video_to_tiktok(video_path, caption)
+    post_video_to_tiktok(output_path, caption)
 
-    os.unlink(video_path)
+    # Aufraumen
+    if os.path.exists(output_path):
+        os.unlink(output_path)
+
     print(f"[{datetime.datetime.now()}] Fertig!")
 
 
