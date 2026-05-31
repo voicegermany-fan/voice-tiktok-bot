@@ -1,6 +1,6 @@
 """
 The Voice Germany TikTok Bot
-Postet automatisch Ranking-Bilder auf TikTok via Video Upload (MP4).
+Generiert automatisch Ranking-Posts und postet sie auf TikTok.
 """
 
 import os
@@ -8,11 +8,11 @@ import json
 import random
 import datetime
 import requests
-import subprocess
+import numpy as np
+import cv2
 from PIL import Image, ImageDraw, ImageFont
 import textwrap
 import io
-import tempfile
 
 TIKTOK_CLIENT_KEY    = os.environ["TIKTOK_CLIENT_KEY"]
 TIKTOK_CLIENT_SECRET = os.environ["TIKTOK_CLIENT_SECRET"]
@@ -67,11 +67,11 @@ RANKINGS = [
         "title": "Top 5 meistgeklickte Songs",
         "hashtags": "#TheVoiceGermany #YouTube #Viral #Top5 #Musik",
         "items": [
-            {"rank": 1, "name": "Lina Seefried",    "detail": "50+ Mio. Views", "song": "Chandelier"},
-            {"rank": 2, "name": "Jonny Fischer",    "detail": "38 Mio. Views",  "song": "Bohemian Rhapsody"},
-            {"rank": 3, "name": "Manon Joste",      "detail": "29 Mio. Views",  "song": "River"},
-            {"rank": 4, "name": "Stef. Heinzmann",  "detail": "24 Mio. Views",  "song": "Halo"},
-            {"rank": 5, "name": "Alex. Knappe",     "detail": "18 Mio. Views",  "song": "Titanium"},
+            {"rank": 1, "name": "Lina Seefried",   "detail": "50+ Mio. Views", "song": "Chandelier"},
+            {"rank": 2, "name": "Jonny Fischer",   "detail": "38 Mio. Views",  "song": "Bohemian Rhapsody"},
+            {"rank": 3, "name": "Manon Joste",     "detail": "29 Mio. Views",  "song": "River"},
+            {"rank": 4, "name": "Stef. Heinzmann", "detail": "24 Mio. Views",  "song": "Halo"},
+            {"rank": 5, "name": "Alex. Knappe",    "detail": "18 Mio. Views",  "song": "Titanium"},
         ],
     },
     {
@@ -159,37 +159,24 @@ def create_ranking_image(ranking: dict) -> bytes:
     return buf.getvalue()
 
 
-def image_to_video(image_bytes: bytes, duration: int = 5) -> str:
-    """Konvertiert ein Bild in ein kurzes MP4-Video fuer TikTok."""
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
-        f.write(image_bytes)
-        img_path = f.name
+def image_to_video(image_bytes: bytes, duration: int = 8) -> str:
+    img = Image.open(io.BytesIO(image_bytes))
+    img = img.resize((1080, 1920))
+    frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
-    video_path = img_path.replace(".jpg", ".mp4")
+    video_path = "/tmp/ranking_video.mp4"
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    out = cv2.VideoWriter(video_path, fourcc, 30, (1080, 1920))
 
-    cmd = [
-        "ffmpeg", "-y",
-        "-loop", "1",
-        "-i", img_path,
-        "-c:v", "libx264",
-        "-t", str(duration),
-        "-pix_fmt", "yuv420p",
-        "-vf", "scale=1080:1920",
-        "-r", "30",
-        video_path
-    ]
+    for _ in range(30 * duration):
+        out.write(frame)
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"FFmpeg Fehler: {result.stderr}")
-        raise Exception("Video-Konvertierung fehlgeschlagen")
-
+    out.release()
     print(f"Video erstellt: {video_path}")
     return video_path
 
 
 def post_video_to_tiktok(video_path: str, caption: str):
-    """Postet ein Video auf TikTok via Direct Post."""
     token = TIKTOK_ACCESS_TOKEN.strip()
     headers = {
         "Authorization": f"Bearer {token}",
@@ -199,7 +186,6 @@ def post_video_to_tiktok(video_path: str, caption: str):
     video_size = os.path.getsize(video_path)
     print(f"Videogroesse: {video_size // 1024} KB")
 
-    # Schritt 1: Creator Info abfragen (TikTok Pflicht)
     print("Frage Creator Info ab...")
     creator_resp = requests.post(
         "https://open.tiktokapis.com/v2/post/publish/creator_info/query/",
@@ -209,7 +195,6 @@ def post_video_to_tiktok(video_path: str, caption: str):
     )
     print(f"Creator Info: {creator_resp.status_code} - {creator_resp.text[:200]}")
 
-    # Schritt 2: Video Post initialisieren
     print("Initialisiere Video Post...")
     init_resp = requests.post(
         "https://open.tiktokapis.com/v2/post/publish/video/init/",
@@ -242,7 +227,6 @@ def post_video_to_tiktok(video_path: str, caption: str):
         print("Fehler: Kein upload_url!")
         return
 
-    # Schritt 3: Video hochladen
     print("Lade Video hoch...")
     with open(video_path, "rb") as f:
         video_bytes = f.read()
