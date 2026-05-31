@@ -236,6 +236,7 @@ def upload_photo_to_tiktok(image_bytes: bytes) -> str:
         },
         timeout=30,
     )
+    print(f"TikTok Antwort: {init_resp.status_code} - {init_resp.text}")
     init_resp.raise_for_status()
     data      = init_resp.json().get("data", {})
     upload_url = data["upload_url"]
