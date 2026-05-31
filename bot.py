@@ -174,20 +174,23 @@ def post_to_tiktok(image_bytes: bytes, caption: str):
 
     # Schritt 1: Photo Post initialisieren
     payload = {
-        "post_info": {
-            "title": caption[:2200],
-            "description": caption[:2200],
-            "disable_comment": False,
-            "privacy_level": "SELF_ONLY",
-        },
-        "source_info": {
-            "source": "FILE_UPLOAD",
-            "photo_cover_index": 0,
-            "photo_images": [],
-        },
-        "post_mode": "DIRECT_POST",
-        "media_type": "PHOTO",
-    }
+    "post_info": {
+        "title": caption[:150],
+        "privacy_level": "SELF_ONLY",
+        "disable_comment": False,
+        "disable_duet": False,
+        "disable_stitch": False,
+        "brand_content_toggle": False,
+        "brand_organic_toggle": False,
+    },
+    "source_info": {
+        "source": "FILE_UPLOAD",
+        "photo_cover_index": 0,
+        "photo_images": [],
+    },
+    "post_mode": "DIRECT_POST",
+    "media_type": "PHOTO",
+}
 
     print("Initialisiere Photo Post...")
     resp = requests.post(
