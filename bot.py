@@ -224,7 +224,7 @@ def upload_photo_to_tiktok(image_bytes: bytes) -> str:
     """Lädt ein Bild hoch und gibt die media_id zurück."""
     # Schritt 1: Upload-URL anfordern
     init_resp = requests.post(
-        "https://open.tiktokapis.com/v2/post/publish/inbox/photo/init/",
+        "https://open.tiktokapis.com/v2/post/publish/video/init/",
         headers=get_tiktok_headers(),
         json={
             "source_info": {
