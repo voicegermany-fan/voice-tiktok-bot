@@ -17,8 +17,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r requirements.txt
-      - name: Bot ausführen
+      - name: FFmpeg installieren
+        run: sudo apt-get install -y ffmpeg
+      - name: Abhaengigkeiten installieren
+        run: pip install -r requirements.txt
+      - name: Bot ausfuehren
         env:
           TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
           TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
